@@ -3,7 +3,6 @@ import {Context} from './context';
 
 export class CacheStorage {
     private static _link?: HTMLAnchorElement;
-    private static _origin = 'about:blank';
 
     static getOrigin(url: string): string {
         const link = CacheStorage._link;
@@ -16,13 +15,8 @@ export class CacheStorage {
         return link.protocol + link.hostname + link.port;
     }
 
-    static isSameOrigin(src: string): boolean {
-        return CacheStorage.getOrigin(src) === CacheStorage._origin;
-    }
-
     static setContext(window: Window): void {
         CacheStorage._link = window.document.createElement('a');
-        CacheStorage._origin = CacheStorage.getOrigin(window.location.href);
     }
 }
 
@@ -61,31 +55,7 @@ export class Cache {
     }
 
     private async loadImage(key: string) {
-        const isSameOrigin = CacheStorage.isSameOrigin(key);
-        const useCORS =
-            !isInlineImage(key) && this._options.useCORS === true && FEATURES.SUPPORT_CORS_IMAGES && !isSameOrigin;
-        const useProxy =
-            !isInlineImage(key) &&
-            !isSameOrigin &&
-            !isBlobImage(key) &&
-            typeof this._options.proxy === 'string' &&
-            FEATURES.SUPPORT_CORS_XHR &&
-            !useCORS;
-        if (
-            !isSameOrigin &&
-            this._options.allowTaint === false &&
-            !isInlineImage(key) &&
-            !isBlobImage(key) &&
-            !useProxy &&
-            !useCORS
-        ) {
-            return;
-        }
-
-        let src = key;
-        if (useProxy) {
-            src = await this.proxy(src);
-        }
+        const src = await this.proxy(key);
 
         this.context.logger.debug(`Added image ${key.substring(0, 256)}`);
 
@@ -94,7 +64,7 @@ export class Cache {
             img.onload = () => resolve(img);
             img.onerror = reject;
             //ios safari 10.3 taints canvas with data urls unless crossOrigin is set to anonymous
-            if (isInlineBase64Image(src) || useCORS) {
+            if (isInlineBase64Image(src)) {
                 img.crossOrigin = 'anonymous';
             }
             img.src = src;
@@ -120,12 +90,6 @@ export class Cache {
     }
 
     private proxy(src: string): Promise<string> {
-        const proxy = this._options.proxy;
-
-        if (!proxy) {
-            throw new Error('No proxy defined');
-        }
-
         const key = src.substring(0, 256);
 
         return new Promise((resolve, reject) => {
@@ -147,8 +111,7 @@ export class Cache {
             };
 
             xhr.onerror = reject;
-            const queryString = proxy.indexOf('?') > -1 ? '&' : '?';
-            xhr.open('GET', `${proxy}${queryString}url=${encodeURIComponent(src)}&responseType=${responseType}`);
+            xhr.open('GET', src);
 
             if (responseType !== 'text' && xhr instanceof XMLHttpRequest) {
                 xhr.responseType = responseType;
@@ -167,10 +130,8 @@ export class Cache {
 
 const INLINE_SVG = /^data:image\/svg\+xml/i;
 const INLINE_BASE64 = /^data:image\/.*;base64,/i;
-const INLINE_IMG = /^data:image\/.*/i;
 
 const isRenderable = (src: string): boolean => FEATURES.SUPPORT_SVG_DRAWING || !isSVG(src);
-const isInlineImage = (src: string): boolean => INLINE_IMG.test(src);
 const isInlineBase64Image = (src: string): boolean => INLINE_BASE64.test(src);
 const isBlobImage = (src: string): boolean => src.substr(0, 4) === 'blob';
 
